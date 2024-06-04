@@ -11,7 +11,7 @@ import (
 */
 
 type cache struct {
-	mu         sync.Mutex
+	mu         sync.Mutex // 互斥锁
 	lru        *lru.Cache
 	cacheBytes int64
 }
