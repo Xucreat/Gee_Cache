@@ -2,7 +2,7 @@ syntax = "proto3";
 /*将 HTTP 通信的中间载体替换成 protobuf*/
 package geecachepb;
 
-option go_package = "/";
+option go_package = "GeeCache/geecache/geecachepb";
 
 message Request {
     string group = 1;
