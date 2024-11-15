@@ -2,7 +2,7 @@
 // versions:
 // - protoc-gen-go-grpc v1.5.1
 // - protoc             v5.28.2
-// source: GeeCache/geecache/geecachepb/geecachepb.proto
+// source: geecache/geecachepb/geecachepb.proto
 
 //将 HTTP 通信的中间载体替换成 protobuf
 
@@ -21,14 +21,23 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	GroupCache_Get_FullMethodName = "/geecachepb.GroupCache/Get"
+	GroupCache_Get_FullMethodName           = "/geecachepb.GroupCache/Get"
+	GroupCache_RequestVote_FullMethodName   = "/geecachepb.GroupCache/RequestVote"
+	GroupCache_AppendEntries_FullMethodName = "/geecachepb.GroupCache/AppendEntries"
 )
 
 // GroupCacheClient is the client API for GroupCache service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+//
+// GroupCache 服务
 type GroupCacheClient interface {
+	// 获取缓存数据
 	Get(ctx context.Context, in *Request, opts ...grpc.CallOption) (*Response, error)
+	// 发送投票请求
+	RequestVote(ctx context.Context, in *RequestVoteRequest, opts ...grpc.CallOption) (*RequestVoteResponse, error)
+	// 发送心跳请求
+	AppendEntries(ctx context.Context, in *AppendEntriesRequest, opts ...grpc.CallOption) (*AppendEntriesResponse, error)
 }
 
 type groupCacheClient struct {
@@ -49,11 +58,38 @@ func (c *groupCacheClient) Get(ctx context.Context, in *Request, opts ...grpc.Ca
 	return out, nil
 }
 
+func (c *groupCacheClient) RequestVote(ctx context.Context, in *RequestVoteRequest, opts ...grpc.CallOption) (*RequestVoteResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RequestVoteResponse)
+	err := c.cc.Invoke(ctx, GroupCache_RequestVote_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *groupCacheClient) AppendEntries(ctx context.Context, in *AppendEntriesRequest, opts ...grpc.CallOption) (*AppendEntriesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(AppendEntriesResponse)
+	err := c.cc.Invoke(ctx, GroupCache_AppendEntries_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // GroupCacheServer is the server API for GroupCache service.
 // All implementations must embed UnimplementedGroupCacheServer
 // for forward compatibility.
+//
+// GroupCache 服务
 type GroupCacheServer interface {
+	// 获取缓存数据
 	Get(context.Context, *Request) (*Response, error)
+	// 发送投票请求
+	RequestVote(context.Context, *RequestVoteRequest) (*RequestVoteResponse, error)
+	// 发送心跳请求
+	AppendEntries(context.Context, *AppendEntriesRequest) (*AppendEntriesResponse, error)
 	mustEmbedUnimplementedGroupCacheServer()
 }
 
@@ -66,6 +102,12 @@ type UnimplementedGroupCacheServer struct{}
 
 func (UnimplementedGroupCacheServer) Get(context.Context, *Request) (*Response, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Get not implemented")
+}
+func (UnimplementedGroupCacheServer) RequestVote(context.Context, *RequestVoteRequest) (*RequestVoteResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RequestVote not implemented")
+}
+func (UnimplementedGroupCacheServer) AppendEntries(context.Context, *AppendEntriesRequest) (*AppendEntriesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method AppendEntries not implemented")
 }
 func (UnimplementedGroupCacheServer) mustEmbedUnimplementedGroupCacheServer() {}
 func (UnimplementedGroupCacheServer) testEmbeddedByValue()                    {}
@@ -106,6 +148,42 @@ func _GroupCache_Get_Handler(srv interface{}, ctx context.Context, dec func(inte
 	return interceptor(ctx, in, info, handler)
 }
 
+func _GroupCache_RequestVote_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RequestVoteRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(GroupCacheServer).RequestVote(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: GroupCache_RequestVote_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(GroupCacheServer).RequestVote(ctx, req.(*RequestVoteRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _GroupCache_AppendEntries_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AppendEntriesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(GroupCacheServer).AppendEntries(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: GroupCache_AppendEntries_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(GroupCacheServer).AppendEntries(ctx, req.(*AppendEntriesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // GroupCache_ServiceDesc is the grpc.ServiceDesc for GroupCache service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -117,7 +195,15 @@ var GroupCache_ServiceDesc = grpc.ServiceDesc{
 			MethodName: "Get",
 			Handler:    _GroupCache_Get_Handler,
 		},
+		{
+			MethodName: "RequestVote",
+			Handler:    _GroupCache_RequestVote_Handler,
+		},
+		{
+			MethodName: "AppendEntries",
+			Handler:    _GroupCache_AppendEntries_Handler,
+		},
 	},
 	Streams:  []grpc.StreamDesc{},
-	Metadata: "GeeCache/geecache/geecachepb/geecachepb.proto",
+	Metadata: "geecache/geecachepb/geecachepb.proto",
 }

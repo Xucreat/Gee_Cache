@@ -4,15 +4,47 @@ package geecachepb;
 
 option go_package = "GeeCache/geecache/geecachepb";
 
+// 请求消息：用于请求缓存的 key 和 group
 message Request {
     string group = 1;
     string key =2;
 }
 
+// 响应消息：包含缓存的 value
 message Response {
     bytes value = 1;
 }
 
+// 投票请求消息
+message RequestVoteRequest {
+    int32 term = 1;          // 当前任期
+    int32 candidate_id = 2;  // 候选人 ID
+}
+
+// 投票响应消息
+message RequestVoteResponse {
+    bool vote_granted = 1;  // 是否授权投票
+}
+
+// 心跳请求消息
+message AppendEntriesRequest {
+    int32 term = 1;          // 当前任期
+    int32 leader_id = 2;     // 领导者节点 ID
+}
+
+// 心跳响应消息
+message AppendEntriesResponse {
+    bool success = 1;       // 是否成功接收心跳
+}
+
+// GroupCache 服务
 service GroupCache {
+    // 获取缓存数据
     rpc Get(Request) returns (Response);
+
+    // 发送投票请求
+    rpc RequestVote(RequestVoteRequest) returns (RequestVoteResponse);
+
+    // 发送心跳请求
+    rpc AppendEntries(AppendEntriesRequest) returns (AppendEntriesResponse);
 }
