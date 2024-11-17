@@ -68,3 +68,16 @@ func (m *Map) Get(key string) string {
 	return m.hashMap[m.keys[idx%len(m.keys)]]
 
 }
+
+func (m *Map) GetMultipleNodes(key string, replicas int) []string {
+	hash := int(m.hash([]byte(key)))
+	var nodes []string
+	idx := sort.Search(len(m.keys), func(i int) bool {
+		return m.keys[i] >= hash
+	})
+
+	for i := 0; i < replicas; i++ {
+		nodes = append(nodes, m.hashMap[m.keys[(idx+i)%len(m.keys)]])
+	}
+	return nodes
+}

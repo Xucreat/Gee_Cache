@@ -18,7 +18,9 @@ type Group struct {
 	maincache *cache.ShardedCache // 一开始实现的并发缓存
 	peers     interfaces.PeerPicker
 	// 使用singleflight.Group确保每个键只被获取一次
-	loader *RequestGroup
+	loader      *RequestGroup
+	hotKeys     map[string]int // 热点 Key 的访问统计
+	hotKeyMutex sync.RWMutex   // 使用读写锁     // 防止并发访问冲突
 }
 
 var (
@@ -43,6 +45,7 @@ func NewGroup(name string, cacheBytes int64, getter interfaces.Getter, algorithm
 		getter:    getter,
 		maincache: mainCache, // 使用传入的分片缓存
 		loader:    &RequestGroup{},
+		hotKeys:   make(map[string]int), // 初始化热点统计
 	}
 	// 将新创建的 Group 注册到 groups 中
 	groups[name] = g
@@ -68,16 +71,18 @@ func (g *Group) Get(key string) (data.ByteView, error) {
 	if key == "" {
 		return data.ByteView{}, fmt.Errorf("key is required")
 	}
+	g.IncrementKeyUsage(key) // 增加访问计数
 
 	//流程 ⑴ ：从 mainCache 中查找缓存，如果存在则返回缓存值。
 	/*调用 get() 时，不需要复制，core.ByteView 是只读的，不可修改。
 	通过 ByteSlice() 或 String() 方法取到缓存值的副本。
 	只读属性，是设计 core.ByteView 的主要目的之一。*/
 	if v, ok := g.maincache.Get(key); ok {
-		log.Println("[GeeCache] hit")
+		log.Printf("[GeeCache] Cache hit for key: %s", key)
 		return v.(data.ByteView), nil
 	}
 
+	log.Printf("[GeeCache] Cache miss for key: %s, loading...", key)
 	// 流程 ⑶ ：缓存不存在，则调用 load 方法，
 	return g.load(key)
 }
@@ -93,22 +98,24 @@ func (g *Group) load(key string) (value data.ByteView, err error) {
 		if g.peers != nil {
 			// 有可用的节点，则通过调用 PickPeer(key) 选择一个节点
 			if peer, ok := g.peers.PickPeer(key); ok {
+				log.Printf("[GeeCache] Trying to load key: %s from peer", key)
 				// 调用 getFromPeer(peer, key) 从远程节点获取数据
 				if value, err = g.getFromPeer(peer, key); err == nil {
 					// 成功，则返回远程获取到的数据
 					return value, nil
 				}
 				// 失败，则记录日志并回退到本地获取流程。
-				log.Println("[GeeCache] Failed to get from peer", err)
+				log.Printf("[GeeCache] Failed to load key: %s from peer, error: %v", key, err)
 			}
 		}
+		log.Printf("[GeeCache] Loading key: %s locally", key)
 		// 没有找到合适的远程节点，或者从远程节点获取数据失败，则调用 g.getLocally(key) 进行本地获取。
 		return g.getLocally(key)
 	})
 	if err == nil {
 		return viewi.(data.ByteView), nil
 	}
-	return
+	return data.ByteView{}, fmt.Errorf("failed to load key: %s, error: %v", key, err)
 
 }
 
@@ -151,4 +158,71 @@ func (g *Group) getFromPeer(peer interfaces.PeerGetter, key string) (data.ByteVi
 		return data.ByteView{}, err
 	}
 	return data.ByteView{B: res.Value}, nil
+}
+
+// IncrementKeyUsage 统计 Key 的访问次数
+func (g *Group) IncrementKeyUsage(key string) {
+	g.hotKeyMutex.Lock()
+	defer g.hotKeyMutex.Unlock()
+	// 将 hotKeys 的初始化提前到 Group 的构造函数中。
+	// if g.hotKeys == nil {
+	// 	g.hotKeys = make(map[string]int)
+	// }
+	g.hotKeys[key]++
+}
+
+// IsHotKey 判断 Key 是否为热点
+func (g *Group) IsHotKey(key string) bool {
+	g.hotKeyMutex.RLock() // 使用读锁
+	defer g.hotKeyMutex.RUnlock()
+	count, exists := g.hotKeys[key]
+	return exists && count > 100 // 假设访问次数超过 100 为热点
+}
+
+func (g *Group) SyncHotKeyToPeers(key string, value data.ByteView) error {
+	// 如果当前 key 不是热点，直接返回
+	if !g.IsHotKey(key) {
+		return nil
+	}
+
+	/// 使用 ReplicatedPeerPicker 接口获取多个副本节点
+	replicatedPicker, ok := g.peers.(interfaces.ReplicatedPeerPicker)
+	if !ok {
+		return fmt.Errorf("peers is not of type ReplicatedPeerPicker")
+	}
+
+	// 获取多个副本节点
+	peers := replicatedPicker.GetReplicatedPeers(key, 3)
+	if len(peers) == 0 {
+		return fmt.Errorf("no peers available for key: %s", key)
+	}
+	var wg sync.WaitGroup
+	var syncError error
+
+	for _, peer := range peers {
+		wg.Add(1)
+		go func(p interfaces.PeerGetter) {
+			defer wg.Done()
+			req := &pb.Request{Group: g.name, Key: key}
+			if err := p.Get(req, &pb.Response{}); err != nil {
+				log.Printf("[GeeCache] Failed to sync key: %s to peer: %v, error: %v", key, p, err)
+				syncError = err
+			}
+		}(peer)
+	}
+	wg.Wait()
+	return syncError
+}
+
+func (g *Group) populateCacheOnPeer(peer interfaces.PeerGetter, key string, value data.ByteView) error {
+	req := &pb.Request{Group: g.name, Key: key} // 修正没有 Value 字段的问题
+	res := &pb.Response{}
+	if err := peer.Get(req, res); err != nil {
+		return err
+	}
+
+	// 将同步数据添加到远程节点的缓存
+	remoteValue := data.ByteView{B: res.Value}
+	g.maincache.Add(key, remoteValue)
+	return nil
 }

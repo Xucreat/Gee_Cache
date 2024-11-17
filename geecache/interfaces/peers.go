@@ -19,3 +19,8 @@ type PeerPicker interface {
 type PeerGetter interface {
 	Get(in *pb.Request, out *pb.Response) error
 }
+
+// 定义接口用于获取多个副本
+type ReplicatedPeerPicker interface {
+	GetReplicatedPeers(key string, replicas int) []PeerGetter
+}

@@ -1,4 +1,5 @@
 /*使用 singleflight 防止缓存击穿*/
+/*避免同一个 key 被多个并发请求同时访问，减少对后端数据源（如数据库、外部API等）的重复请求。*/
 package core
 
 import "sync"

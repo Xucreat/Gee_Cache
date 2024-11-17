@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"math/rand"
 	"net"
 	"sync"
 
@@ -160,4 +161,29 @@ func (c *grpcClient) GetData(group, key string) ([]byte, error) {
 		return nil, fmt.Errorf("failed to get: %v", err)
 	}
 	return resp.GetValue(), nil
+}
+
+func (p *GRPCPool) GetReplicatedPeers(key string, replicas int) []interfaces.PeerGetter {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	peerNames := p.peers.GetMultipleNodes(key, replicas)
+	var getters []interfaces.PeerGetter
+	for _, peer := range peerNames {
+		if client, exists := p.grpcClients[peer]; exists {
+			getters = append(getters, client)
+		}
+	}
+	return getters
+}
+
+// 确保 GRPCPool 实现了 ReplicatedPeerPicker 接口
+var _ interfaces.ReplicatedPeerPicker = (*GRPCPool)(nil)
+
+// SelectPeer 从多个副本中选择一个节点
+func (p *GRPCPool) SelectPeer(peers []interfaces.PeerGetter) interfaces.PeerGetter {
+	if len(peers) == 0 {
+		return nil
+	}
+	return peers[rand.Intn(len(peers))] // 随机选择一个副本
 }
