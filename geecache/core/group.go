@@ -14,8 +14,8 @@ import (
 // 一个 Group 可以认为是一个缓存的命名空间
 type Group struct {
 	name      string
-	getter    interfaces.Getter      // 缓存未命中时获取源数据的回调(callback)。
-	maincache *cache.ConcurrentCache // 一开始实现的并发缓存
+	getter    interfaces.Getter   // 缓存未命中时获取源数据的回调(callback)。
+	maincache *cache.ShardedCache // 一开始实现的并发缓存
 	peers     interfaces.PeerPicker
 	// 使用singleflight.Group确保每个键只被获取一次
 	loader *RequestGroup
@@ -27,18 +27,24 @@ var (
 )
 
 // NewGroup create a new instance of Group
-func NewGroup(name string, cacheBytes int64, getter interfaces.Getter) *Group {
+func NewGroup(name string, cacheBytes int64, getter interfaces.Getter, algorithm string) *Group {
 	if getter == nil {
 		panic("nil Getter")
 	}
 	mu.Lock()
 	defer mu.Unlock()
+
+	// 创建一个带有分片的缓存，支持不同的缓存算法（LRU、LFU等）
+	mainCache := cache.NewShardedCache(256, cacheBytes, algorithm)
+
+	// 创建新的 Group 对象
 	g := &Group{
 		name:      name,
 		getter:    getter,
-		maincache: cache.NewConcurrentCache(cacheBytes),
+		maincache: mainCache, // 使用传入的分片缓存
 		loader:    &RequestGroup{},
 	}
+	// 将新创建的 Group 注册到 groups 中
 	groups[name] = g
 	return g
 }
@@ -69,7 +75,7 @@ func (g *Group) Get(key string) (data.ByteView, error) {
 	只读属性，是设计 core.ByteView 的主要目的之一。*/
 	if v, ok := g.maincache.Get(key); ok {
 		log.Println("[GeeCache] hit")
-		return v, nil
+		return v.(data.ByteView), nil
 	}
 
 	// 流程 ⑶ ：缓存不存在，则调用 load 方法，

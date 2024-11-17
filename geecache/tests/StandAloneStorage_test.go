@@ -40,6 +40,8 @@ var db = map[string]string{
 
 func TestGet(t *testing.T) {
 	loadCounts := make(map[string]int, len(db))
+
+	// 使用 ShardedCache 创建 Group，支持 LRU 或 LFU 算法
 	gee := core.NewGroup("scores", 2<<10, interfaces.GetterFunc(
 		func(key string) ([]byte, error) {
 			log.Println("[SlowDB] search key", key)
@@ -51,7 +53,7 @@ func TestGet(t *testing.T) {
 				return []byte(v), nil
 			}
 			return nil, fmt.Errorf("%s not exist", key)
-		}))
+		}), "lfu")
 
 	for k, v := range db {
 		// 调用 gee.Get(k) 从 缓存 获取该键的值
